@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grocery Price Compare</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e3e3de; --accent:#1f7a4d; --warn:#a55a00; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#151514; --card:#1f1f1d; --text:#ececea; --muted:#a3a39d; --line:#33332f; --accent:#4cc38a; --warn:#e0a050; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+  h1 { margin: 0 0 16px; font-size: 1.6rem; }
+  form, .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:14px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=text] { flex:1; min-width:180px; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font-size:1rem; }
+  button, label.btn { padding:10px 14px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; font-size:.95rem; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .warn { color:var(--warn); font-size:.9rem; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  td { padding:6px 4px; border-top:1px solid var(--line); vertical-align:top; }
+  td.price { text-align:right; white-space:nowrap; font-variant-numeric: tabular-nums; }
+  .best { color:var(--accent); font-weight:700; }
+  .tag { display:inline-block; font-size:.75rem; padding:1px 6px; border-radius:99px; background:var(--accent); color:#fff; margin-left:6px; }
+  a { color:inherit; }
+  ul.watch { list-style:none; padding:0; margin:0; }
+  ul.watch li { display:flex; justify-content:space-between; padding:4px 0; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Grocery Price Compare</h1>
+
+  <form id="search">
+    <div class="row">
+      <input type="text" id="q" placeholder="Search a product, e.g. full cream milk 2L" autocomplete="off">
+      <button type="submit">Compare</button>
+      <label class="btn">📷 Photo<input type="file" id="photo" accept="image/*" capture="environment" hidden></label>
+    </div>
+    <p class="muted" id="status"></p>
+  </form>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong>Watched searches</strong>
+      <button class="ghost" id="refresh" type="button">Refresh prices now</button>
+    </div>
+    <p class="muted">Watched searches are re-checked automatically so price history builds up.</p>
+    <ul class="watch" id="watches"></ul>
+  </div>
+
+  <div id="results"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const money = (n) => n == null ? "" : "$" + Number(n).toFixed(2);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let lastQuery = "";
+
+function render(data) {
+  lastQuery = data.query;
+  const errs = Object.entries(data.errors || {}).map(([s, e]) => `<p class="warn">${esc(s)} unavailable: ${esc(e)}</p>`).join("");
+  const rows = data.results.map(r => `
+    <div class="card">
+      <div><strong>${esc(r.name)}</strong> <span class="muted">${esc(r.size)}</span>
+        ${r.offers.length > 1 ? `<span class="tag">save ${money(r.saving)}</span>` : ""}</div>
+      <table>${r.offers.map((o, i) => `
+        <tr>
+          <td>${esc(o.store)} ${o.url ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">↗</a>` : ""}
+            <div class="muted">${esc(o.name)}</div></td>
+          <td class="muted">${esc(o.unit_price)}</td>
+          <td class="price ${i === 0 ? "best" : ""}">${money(o.price)}
+            ${o.was_price ? `<div class="muted"><s>${money(o.was_price)}</s></div>` : ""}
+            ${o.id ? `<div><a href="#" data-history="${o.id}" class="muted">history</a></div>` : ""}</td>
+        </tr>`).join("")}
+      </table>
+    </div>`).join("");
+  $("results").innerHTML = `
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <span>${data.recognised_as ? `Photo recognised as <strong>${esc(data.recognised_as)}</strong> · ` : ""}${data.results.length} items for “${esc(data.query)}”</span>
+      <button class="ghost" id="watch" type="button">Watch this search</button>
+    </div>${errs}${rows || '<p class="muted">No results.</p>'}`;
+  $("watch").onclick = async () => { await fetch(`/api/watches?q=${encodeURIComponent(lastQuery)}`, {method: "POST"}); loadWatches(); };
+}
+
+async function run(promise) {
+  $("status").textContent = "Searching stores…";
+  try {
+    const res = await promise;
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    render(data);
+    $("status").textContent = "";
+  } catch (e) { $("status").textContent = "Error: " + e.message; }
+}
+
+$("search").onsubmit = (e) => { e.preventDefault(); const q = $("q").value.trim(); if (q) run(fetch(`/api/search?q=${encodeURIComponent(q)}`)); };
+$("photo").onchange = () => {
+  const f = $("photo").files[0]; if (!f) return;
+  const body = new FormData(); body.append("photo", f);
+  run(fetch("/api/search/photo", {method: "POST", body}));
+  $("photo").value = "";
+};
+
+document.addEventListener("click", async (e) => {
+  const id = e.target.dataset?.history; if (!id) return;
+  e.preventDefault();
+  const h = await (await fetch(`/api/products/${id}/history`)).json();
+  alert(h.map(p => `${p.seen_at.slice(0, 10)}  ${money(p.price)}`).join("\n") || "No history yet");
+});
+
+async function loadWatches() {
+  const list = await (await fetch("/api/watches")).json();
+  $("watches").innerHTML = list.map(q => `<li><a href="#" data-q="${esc(q)}">${esc(q)}</a>
+    <button class="ghost" data-del="${esc(q)}" type="button">remove</button></li>`).join("") || '<li class="muted">None yet</li>';
+  $("watches").querySelectorAll("[data-q]").forEach(a => a.onclick = (e) => { e.preventDefault(); $("q").value = a.dataset.q; $("search").requestSubmit(); });
+  $("watches").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => { await fetch(`/api/watches?q=${encodeURIComponent(b.dataset.del)}`, {method: "DELETE"}); loadWatches(); });
+}
+$("refresh").onclick = async () => { $("status").textContent = "Refreshing watched prices…"; await fetch("/api/refresh", {method: "POST"}); $("status").textContent = "Prices refreshed."; };
+loadWatches();
+</script>
+</body>
+</html>
