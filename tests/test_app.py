@@ -76,3 +76,10 @@ def test_coles_parser():
     [p] = coles.parse(data)
     assert (p.name, p.price, p.was_price) == ("Coles Full Cream Milk", 3.1, None)
     assert p.url.endswith("coles-full-cream-milk-2l-456")
+
+
+def test_coles_next_data_extraction():
+    html = '<html><script id="__NEXT_DATA__" type="application/json">{"props": {"pageProps": {"x": 1}}}</script></html>'
+    assert coles.extract_next_data(html) == {"pageProps": {"x": 1}}
+    with pytest.raises(coles.BlockedError):
+        coles.extract_next_data("<html>Request unsuccessful. Incapsula incident ID</html>")

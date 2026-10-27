@@ -16,4 +16,4 @@ def enabled_stores() -> list[Store]:
     return [Woolworths(), Coles()]
 
 
-__all__ = ["Product", "Store", "enabled_stores"]
+__all__ = ["Coles", "Product", "Store", "Woolworths", "enabled_stores"]

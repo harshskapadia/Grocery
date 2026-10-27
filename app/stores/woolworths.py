@@ -25,6 +25,8 @@ class Woolworths(Store):
                 params={"searchTerm": query, "pageSize": limit, "pageNumber": 1, "sortType": "TraderRelevance"},
             )
             resp.raise_for_status()
+            if "json" not in resp.headers.get("content-type", ""):
+                raise RuntimeError("Woolworths returned a bot-check page instead of results")
             return parse(resp.json())
 
 

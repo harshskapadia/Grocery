@@ -69,21 +69,44 @@ Run the tests with `pytest`.
 Supermarket prices mostly change once a week (Wednesday for both Woolworths
 and Coles specials), so once or twice a day is plenty.
 
-## Important: where the price data comes from
+## Using real Woolworths and Coles prices
 
-**Woolworths and Coles don't offer a public price API.** The adapters here call
-the same JSON endpoints their own websites use. That means:
+Live mode is the default. Run it on your own computer:
 
-- **They can break** whenever the sites change. Each adapter is small and
+```bash
+python -m app.check_stores "milk"     # quick test: does each store answer?
+uvicorn app.main:app                  # then open http://localhost:8000
+```
+
+`check_stores` prints ✓ with a few sample prices for each store that works, or
+✗ with the reason it failed.
+
+### Where the data comes from
+
+**Woolworths and Coles don't offer a public price API.** The adapters read the
+same data their own websites load. That means:
+
+- **It can break** whenever the sites change. Each adapter is small and
   isolated, and a failing store shows a warning instead of crashing the search.
-- **Coles uses bot protection**, so requests from cloud servers are often
-  blocked. A home connection usually works; otherwise use a paid scraping
-  service or a grocery-data provider.
+- **If a store blocks the request** (Coles uses bot protection), the app
+  reports "automated access refused" and doesn't try to get around it. Use an
+  authorised source for that store instead (below).
 - **Check each store's terms of use** before running this publicly or at
   scale. Keep the request rate low (the refresher already pauses between
-  searches) and cache results instead of hitting the stores for every visitor.
+  searches) and store results instead of hitting the stores for every visitor.
 - Prices can differ by state/store location. The adapters use each site's
   default location.
+
+### Authorised data sources (for a public app)
+
+- **Ask the retailer.** Woolworths and Coles both run partner/affiliate
+  programs; a data agreement is the only way to be fully in the clear.
+- **Licensed grocery-price data providers** that sell Australian supermarket
+  price feeds.
+- **Third-party scraping services** (e.g. Apify actors for Woolworths/Coles).
+  They return the same fields this app uses, so each one is a small adapter in
+  `app/stores/`. They still collect the data from the store websites, so the
+  terms-of-use question doesn't go away.
 
 ## Adding another store (Aldi, IGA, Harris Farm, …)
 

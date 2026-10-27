@@ -1,14 +1,18 @@
 """Coles adapter.
 
-Coles has no official public API. Their site is a Next.js app, so search
-results are available as JSON at /_next/data/<buildId>/... . Coles uses
-bot protection, so from servers/cloud IPs this often gets blocked (HTTP 403 or a
-captcha page). If that happens, run it from a home connection, slow it down, or
-swap in a paid scraping API / data provider.
+Coles has no official public API. Their site is a Next.js app, so each search
+page embeds its results as JSON in a <script id="__NEXT_DATA__"> tag.
+
+Coles uses bot protection. A blocked request often still returns HTTP 200
+with a small "check" page, so we detect a block by the missing JSON and report
+it rather than trying to get around it. If Coles blocks you, use an authorised
+data source instead (see README).
 """
 from __future__ import annotations
 
+import json
 import re
+from urllib.parse import quote_plus
 
 import httpx
 
@@ -16,25 +20,29 @@ from .base import BROWSER_HEADERS, Product, Store
 
 BASE = "https://www.coles.com.au"
 IMAGE_BASE = "https://productimages.coles.com.au/productimages"
+NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
+
+
+class BlockedError(RuntimeError):
+    pass
 
 
 class Coles(Store):
     name = "Coles"
 
     async def search(self, query: str, limit: int = 20) -> list[Product]:
-        headers = {**BROWSER_HEADERS, "Accept": "text/html,application/json"}
+        headers = {**BROWSER_HEADERS, "Accept": "text/html,application/xhtml+xml"}
         async with httpx.AsyncClient(headers=headers, timeout=20, follow_redirects=True) as client:
-            home = await client.get(BASE)
-            home.raise_for_status()
-            match = re.search(r'"buildId":"([^"]+)"', home.text)
-            if not match:
-                raise RuntimeError("Coles buildId not found (likely blocked by bot protection)")
-            resp = await client.get(
-                f"{BASE}/_next/data/{match.group(1)}/en/search/products.json",
-                params={"q": query},
-            )
+            resp = await client.get(f"{BASE}/search/products?q={quote_plus(query)}")
             resp.raise_for_status()
-            return parse(resp.json())[:limit]
+            return parse(extract_next_data(resp.text))[:limit]
+
+
+def extract_next_data(html: str) -> dict:
+    match = NEXT_DATA.search(html)
+    if not match:
+        raise BlockedError("Coles returned a bot-check page instead of results (automated access refused)")
+    return json.loads(match.group(1))["props"]
 
 
 def parse(data: dict) -> list[Product]:
